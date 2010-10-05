@@ -97,7 +97,6 @@ class Sender(User):
         print '%s sends step one' % self.name
         one = json.dumps(self.pake.one(), ensure_ascii=True)
         res = self.app.put(self.curl, params=one)
-        print str(res)
         etag = res.headers['ETag']
 
         print '%s now waits for step one from receiver' % self.name

@@ -37,57 +37,62 @@
 J-PAKE server - see https://wiki.mozilla.org/Services/Sync/SyncKey/J-PAKE
 """
 import datetime
-import time
-import random
 import re
-import string
-import json
 from hashlib import md5
 
 from paste.translogger import TransLogger
 
 from webob.dec import wsgify
 from webob.exc import HTTPNotModified, HTTPNotFound, HTTPServiceUnavailable
-from webob import Response
 
-URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
-ID_CHARS = string.ascii_letters + string.digits
+try:
+    from pylibmc import Client
+except (ImportError, RuntimeError):
+    try:
+        from memcache import Client  # NOQA
+    except ImportError:
+        from jpake.util import MemoryClient as Client  # NOQA
+
+from jpake.util import b62encode, b62decode, json_response, CID_CHARS
 
 
-def json_response(data, dump=True, **kw):
-    """Returns Response containing a json string"""
-    if dump:
-        data = json.dumps(data)
-    resp = Response(data, content_type='application/json')
-    for key, value in kw.items():
-        setattr(resp, key, value)
-    return resp
+_URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
+_INC_KEY = 'jpake:channel_id'
 
 
 class JPakeApp(object):
 
-    def __init__(self, cid_len):
+    def __init__(self, cid_len, cache_servers=None):
         self.cid_len = cid_len
-        self.max_combos = len(ID_CHARS) ** cid_len
-        self.channels = {}
+        self.max_combos = len(CID_CHARS) ** cid_len
+        if cache_servers is None:
+            cache_servers = ['127.0.0.1:11211']
+        self.cache = Client(cache_servers)
 
     def _get_new_id(self):
-        if len(self.channels) >= self.max_combos:
+        # autoinc: we use a memcached variable. When the memcached variable
+        # hits the max, it goes back to 0. since sessions have a short ttl,
+        # this should be enough to get a fresh id. In case the autoinc-ed key
+        # is still used, we just raise an error
+        last_id = self.cache.get(_INC_KEY)
+        if last_id is None or last_id >= self.max_combos:
+            next_id = 0
+            self.cache.set(_INC_KEY, 0)
+        else:
+            next_id = last_id + 1
+            self.cache.incr(_INC_KEY)
+
+        new_id = 'jpake:%s' % next_id
+        if not self.cache.add(new_id, ({}, None)):
+            # uh-ho, looks like the key is used already
             raise HTTPServiceUnavailable()
 
-        def _new():
-            return ''.join([random.choice(ID_CHARS)
-                            for i in range(self.cid_len)])
-
-        new = _new()
-        while new in self.channels:
-            new = _new()
-        return new
+        return b62encode(next_id, self.cid_len)
 
     @wsgify
     def __call__(self, request):
         url = request.environ['PATH_INFO']
-        match = URL.match(url)
+        match = _URL.match(url)
         if match is None:
             raise HTTPNotFound()
 
@@ -97,9 +102,7 @@ class JPakeApp(object):
             raise HTTPNotFound()
 
         if url != 'new_channel':
-            channel_id = url
-            if channel_id not in self.channels:
-                raise HTTPNotFound()
+            channel_id = 'jpake:%s' % str(b62decode(url))
             kw = {'channel_id': channel_id}
             url = 'channel'
         else:
@@ -114,44 +117,56 @@ class JPakeApp(object):
 
     def get_new_channel(self, request):
         """Returns a new channel id"""
-        new_id = self._get_new_id()
-        self.channels[new_id] = None, time.time()
-        return json_response(new_id)
+        return json_response(self._get_new_id())
 
-    def _etag(self, data, dt):
+    def _etag(self, data, dt=None):
+        if dt is None:
+            dt = datetime.datetime.now()
         return md5('%s:%s' % (len(data), dt.isoformat())).hexdigest()
 
     def put_channel(self, request, channel_id):
         """Append data into channel."""
         data = request.body
-        now = datetime.datetime.now()
-        etag = self._etag(data, now)
-        self.channels[channel_id] = request.body, now, etag
+        etag = self._etag(data)
+        if not self.cache.replace(channel_id, (request.body, etag)):
+            # if a replace fails, it means the channel does not exists
+            raise HTTPNotFound()
         return json_response(True, etag=etag)
 
     def get_channel(self, request, channel_id):
         """Grabs data from channel if available."""
-        data, when, etag = self.channels[channel_id]
+        content = self.cache.get(channel_id)
+        if content is None:
+            raise HTTPNotFound()
+
+        data, etag = content
+
+        # check the if-None-Match header
         if request.if_none_match is not None:
             if (hasattr(request.if_none_match, 'etags') and
                 etag in request.if_none_match.etags):
                 raise HTTPNotModified()
+
         return json_response(data, dump=False, etag=etag)
 
     def delete_channel(self, request, channel_id):
         """Delete a channel."""
-        if channel_id in self.channels:
-            del self.channels[channel_id]
-            deleted = True
-        else:
-            deleted = False
-        return json_response(deleted)
+        res = self.cache.get(channel_id)
+        if res is None:
+            raise HTTPNotFound()
+
+        res = self.cache.delete(channel_id)
+        if res:
+            res = self.cache.get(channel_id) is None
+        return json_response(res)
 
 
 def make_app(global_conf, **app_conf):
     """Returns a J-PAKE Application."""
+    # XXX Probably want to use the new .ini format instead
     cid_len = int(app_conf.get('cid_len', '3'))
-    app = JPakeApp(cid_len)
+    cache = app_conf.get('cache_servers', '127.0.0.1:11211')
+    app = JPakeApp(cid_len, cache.split(','))
     if global_conf.get('translogger', 'false').lower() == 'true':
         app = TransLogger(app, logger_name='jpakeapp',
                           setup_console_handler=True)
