@@ -34,7 +34,7 @@
 #
 # ***** END LICENSE BLOCK *****
 """
-Application entry point.
+J-PAKE server - see https://wiki.mozilla.org/Services/Sync/SyncKey/J-PAKE
 """
 import datetime
 import time
@@ -52,8 +52,6 @@ from webob import Response
 
 URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
 ID_CHARS = string.ascii_letters + string.digits
-CID_SIZE = 3
-MAX_COMBOS = len(ID_CHARS) ** CID_SIZE
 
 
 def json_response(data, dump=True, **kw):
@@ -68,16 +66,18 @@ def json_response(data, dump=True, **kw):
 
 class JPakeApp(object):
 
-    def __init__(self):
+    def __init__(self, cid_len):
+        self.cid_len = cid_len
+        self.max_combos = len(ID_CHARS) ** cid_len
         self.channels = {}
 
     def _get_new_id(self):
-        if len(self.channels) >= MAX_COMBOS:
+        if len(self.channels) >= self.max_combos:
             raise HTTPServiceUnavailable()
 
         def _new():
             return ''.join([random.choice(ID_CHARS)
-                            for i in range(CID_SIZE)])
+                            for i in range(self.cid_len)])
 
         new = _new()
         while new in self.channels:
@@ -150,7 +150,8 @@ class JPakeApp(object):
 
 def make_app(global_conf, **app_conf):
     """Returns a J-PAKE Application."""
-    app = JPakeApp()
+    cid_len = int(app_conf.get('cid_len', '3'))
+    app = JPakeApp(cid_len)
     if global_conf.get('translogger', 'false').lower() == 'true':
         app = TransLogger(app, logger_name='jpakeapp',
                           setup_console_handler=True)
