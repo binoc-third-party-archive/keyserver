@@ -53,7 +53,7 @@ except (ImportError, RuntimeError):
     except ImportError:
         from jpake.util import MemoryClient as Client  # NOQA
 
-from jpake.util import b62encode, b62decode, json_response, CID_CHARS
+from jpake.util import generate_cid, json_response, CID_CHARS
 
 
 _URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
@@ -69,25 +69,19 @@ class JPakeApp(object):
             cache_servers = ['127.0.0.1:11211']
         self.cache = Client(cache_servers)
 
-    def _get_new_id(self):
-        # autoinc: we use a memcached variable. When the memcached variable
-        # hits the max, it goes back to 0. since sessions have a short ttl,
-        # this should be enough to get a fresh id. In case the autoinc-ed key
-        # is still used, we just raise an error
-        last_id = self.cache.get(_INC_KEY)
-        if last_id is None or last_id >= self.max_combos:
-            next_id = 0
-            self.cache.set(_INC_KEY, 0)
-        else:
-            next_id = last_id + 1
-            self.cache.incr(_INC_KEY)
+    def _get_new_cid(self):
+        tries = 0
+        while tries < 100:
+            new_cid = generate_cid(self.cid_len)
+            success = self.cache.add('jpake:%s' % new_cid, ({}, None))
+            if success:
+                break
+            tries += 1
 
-        new_id = 'jpake:%s' % next_id
-        if not self.cache.add(new_id, ({}, None)):
-            # uh-ho, looks like the key is used already
+        if not success:
             raise HTTPServiceUnavailable()
 
-        return b62encode(next_id, self.cid_len)
+        return new_cid
 
     @wsgify
     def __call__(self, request):
@@ -102,7 +96,7 @@ class JPakeApp(object):
             raise HTTPNotFound()
 
         if url != 'new_channel':
-            channel_id = 'jpake:%s' % str(b62decode(url))
+            channel_id = 'jpake:%s' % url
             kw = {'channel_id': channel_id}
             url = 'channel'
         else:
@@ -117,7 +111,7 @@ class JPakeApp(object):
 
     def get_new_channel(self, request):
         """Returns a new channel id"""
-        return json_response(self._get_new_id())
+        return json_response(self._get_new_cid())
 
     def _etag(self, data, dt=None):
         if dt is None:

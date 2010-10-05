@@ -37,12 +37,11 @@
 """
 import string
 import json
+import random
 
 from webob import Response
 
-CID_CHARS = '123456789' + string.ascii_letters
-FILL_CHAR = '0'
-_BASE = len(CID_CHARS)
+CID_CHARS = string.digits + string.ascii_letters
 
 
 def json_response(data, dump=True, **kw):
@@ -55,34 +54,9 @@ def json_response(data, dump=True, **kw):
     return resp
 
 
-def b62encode(num, fixed_length=3):
-    """Encodes a base 10 number into a pseudo-base 62 one."""
-    if num == 0:
-        return CID_CHARS[0]
-    res = []
-    while num:
-        rem = num % _BASE
-        num = num // _BASE
-        res.append(CID_CHARS[rem])
-    res.reverse()
-    res = ''.join(res)
-    # left-filling with 0s
-    if len(res) < fixed_length:
-        res = '0' * (fixed_length - len(res)) + res
-    return res
-
-
-def b62decode(key):
-    """Decodes a key from pseudo-base62 to base 10"""
-    key = key.lstrip('0')
-    size = len(key)
-    num = 0
-    idx = 0
-    for char in key:
-        power = size - (idx + 1)
-        num += CID_CHARS.index(char) * (_BASE ** power)
-        idx += 1
-    return num
+def generate_cid(size=4):
+    """Returns a random channel id."""
+    return ''.join([random.choice(CID_CHARS) for i in range(size)])
 
 
 class MemoryClient(dict):
