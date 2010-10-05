@@ -53,7 +53,8 @@ from webob import Response
 
 URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
 ID_CHARS = string.ascii_letters + string.digits
-MAX_COMBOS = len(ID_CHARS) ** 3
+CID_SIZE = 3
+MAX_COMBOS = len(ID_CHARS) ** CID_SIZE
 
 
 def json_response(data, dump=True, **kw):
@@ -76,7 +77,8 @@ class JPakeApp(object):
             raise HTTPServiceUnavailable()
 
         def _new():
-            return ''.join([random.choice(ID_CHARS) for i in range(4)])
+            return ''.join([random.choice(ID_CHARS)
+                            for i in range(CID_SIZE)])
 
         new = _new()
         while new in self.channels:
