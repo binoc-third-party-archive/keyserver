@@ -205,3 +205,18 @@ class TestWsgiApp(unittest.TestCase):
         self.app.delete(curl)
         self.app.put(curl,  params='somedata', status=404)
         self.app.get(curl, status=404)
+
+        # let's try a really small ttl to make sure it works
+        if isinstance(self.app.app.cache, dict):
+            # memory fallback, bye-bye
+            return
+
+        self.app.app.ttl = 1.
+        res = self.app.get('/new_channel')
+        cid = str(json.loads(res.body))
+        curl = '/%s' % cid
+        self.app.put(curl,  params='somedata', status=200)
+        time.sleep(1.1)
+
+        # should be dead now
+        self.app.put(curl,  params='somedata', status=404)

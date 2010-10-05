@@ -62,9 +62,10 @@ _INC_KEY = 'jpake:channel_id'
 
 class JPakeApp(object):
 
-    def __init__(self, cid_len, cache_servers=None):
+    def __init__(self, cid_len, cache_servers=None, ttl=36000):
         self.cid_len = cid_len
         self.max_combos = len(CID_CHARS) ** cid_len
+        self.ttl = ttl
         if cache_servers is None:
             cache_servers = ['127.0.0.1:11211']
         self.cache = Client(cache_servers)
@@ -73,7 +74,8 @@ class JPakeApp(object):
         tries = 0
         while tries < 100:
             new_cid = generate_cid(self.cid_len)
-            success = self.cache.add('jpake:%s' % new_cid, ({}, None))
+            success = self.cache.add('jpake:%s' % new_cid, ({}, None),
+                                     time=self.ttl)
             if success:
                 break
             tries += 1
@@ -122,7 +124,8 @@ class JPakeApp(object):
         """Append data into channel."""
         data = request.body
         etag = self._etag(data)
-        if not self.cache.replace(channel_id, (request.body, etag)):
+        if not self.cache.replace(channel_id, (request.body, etag),
+                                  time=self.ttl):
             # if a replace fails, it means the channel does not exists
             raise HTTPNotFound()
         return json_response(True, etag=etag)
