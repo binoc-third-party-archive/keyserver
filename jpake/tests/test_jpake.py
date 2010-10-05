@@ -185,7 +185,7 @@ class TestWsgiApp(unittest.TestCase):
         # bob and sarah should have the same key
         self.assertEqual(bob.key, sarah.key)
 
-        # sarah should have receive the encrypted data from bob
+        # sarah should have received the "encrypted" data from bob
         original_data = bob.data.items()
         original_data.sort()
         received_data = sarah.data.items()
