@@ -191,3 +191,17 @@ class TestWsgiApp(unittest.TestCase):
         received_data = sarah.data.items()
         received_data.sort()
         self.assertEqual(original_data, received_data)
+
+    def test_behavior(self):
+        # make sure we can't play with a channel that does not exist
+        self.app.put('/boo', params='somedata', status=404)
+        self.app.get('/boo', status=404)
+        self.app.delete('/boo', status=404)
+
+        # testing the removal of a channel
+        res = self.app.get('/new_channel')
+        cid = str(json.loads(res.body))
+        curl = '/%s' % cid
+        self.app.delete(curl)
+        self.app.put(curl,  params='somedata', status=404)
+        self.app.get(curl, status=404)

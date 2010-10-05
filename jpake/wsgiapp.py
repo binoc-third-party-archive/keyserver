@@ -47,8 +47,7 @@ from hashlib import md5
 from paste.translogger import TransLogger
 
 from webob.dec import wsgify
-from webob.exc import (HTTPNotModified, HTTPNotFound, HTTPServiceUnavailable,
-                       HTTPBadRequest)
+from webob.exc import HTTPNotModified, HTTPNotFound, HTTPServiceUnavailable
 from webob import Response
 
 URL = re.compile('/(new_channel|[a-zA-Z0-9]*)/?')
@@ -95,10 +94,13 @@ class JPakeApp(object):
         url = match.groups()[0]
         method = request.method
         if method not in ('GET', 'PUT', 'DELETE'):
-            raise HTTPBadRequest()
+            raise HTTPNotFound()
 
         if url != 'new_channel':
-            kw = {'channel_id': url}
+            channel_id = url
+            if channel_id not in self.channels:
+                raise HTTPNotFound()
+            kw = {'channel_id': channel_id}
             url = 'channel'
         else:
             kw = {}
