@@ -33,17 +33,21 @@
 # the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
-""" Functional test to simulate a JPake transaction.
 """
-import unittest
-import threading
+Load test for the J-Pake server
+"""
+import random
 import json
+import unittest
+import string
 import time
+import threading
 
-from webtest import TestApp
-
+from jpake.tests import _patch
 from jpake.tests.client import JPAKE
-from jpake.wsgiapp import make_app
+
+from funkload.FunkLoadTestCase import FunkLoadTestCase
+from funkload.utils import Data
 
 
 class User(threading.Thread):
@@ -68,15 +72,20 @@ class User(threading.Thread):
     def _wait_data(self, etag=''):
         status = 304
         attempts = 0
-        while status == 304 and attempts < 10:
-
-            res = self.app.get(self.curl,
-                                headers={'If-None-Match': etag})
-
-            status = res.status_int
+        while status == 304 and attempts < 20:
+            self.app.setHeader('If-None-Match', etag)
+            try:
+                res = self.app.get(self.curl)
+            except AssertionError, e:
+                if not '304' in str(e):
+                    raise
+                else:
+                    status = 304
+            else:
+                status = res.code
             attempts +=1
             if status == 304:
-                time.sleep(.2)
+                time.sleep(.5)
 
         if status == 304:
             raise AssertionError('Failed to get next step')
@@ -98,55 +107,45 @@ class User(threading.Thread):
 class Sender(User):
     def run(self):
         # step 1
-        print '%s sends step one' % self.name
         one = json.dumps(self.pake.one(), ensure_ascii=True)
-        res = self.app.put(self.curl, params=one)
+        res = self.app.put(self.curl, Data('application/json',one))
         etag = res.headers['ETag']
 
-        print '%s now waits for step one from receiver' % self.name
         other_one = self._wait_data(etag)
-        print '%s received step one' % self.name
 
         # step 2
-        print '%s sends step two' % self.name
         two = json.dumps(self.pake.two(other_one))
-        res = self.app.put(self.curl, params=two)
+        res = self.app.put(self.curl, Data('application/json',two))
         etag = res.headers['ETag']
         time.sleep(.2)
 
         # now wait for step 2 from the other iside
         other_two = self._wait_data(etag)
-        print '%s received step two from receiver' % self.name
 
         # then we build the key
         self.key = self.pake.three(other_two)
 
         # and we send the data (no crypting in the tests)
-        print '%s sends the data' % self.name
         data = json.dumps(self.data)
-        res = self.app.put(self.curl, params=data)
+        res = self.app.put(self.curl, Data('application/json',data))
 
 
 class Receiver(User):
     def run(self):
         # waiting for step 1
-        print '%s waits for step one from sender' % self.name
         other_one = self._wait_data()
 
         # step 1
-        print '%s sends step one to receiver' % self.name
         one = json.dumps(self.pake.one(), ensure_ascii=True)
-        res = self.app.put(self.curl, params=one)
+        res = self.app.put(self.curl, Data('application/json',one))
         etag = res.headers['ETag']
 
         # waiting for step 2
-        print '%s waits for step two from sender' % self.name
         other_two = self._wait_data(etag)
 
         # sending step 2
-        print '%s sends step two' % self.name
         two = json.dumps(self.pake.two(other_one))
-        res = self.app.put(self.curl, params=two)
+        res = self.app.put(self.curl, Data('application/json',two))
         etag = res.headers['ETag']
 
         # then we build the key
@@ -154,73 +153,53 @@ class Receiver(User):
 
         # and we get the data (no crypting in the tests)
         self.data = self._wait_data(etag)
-        print '%s received the data' % self.name
 
 
-class TestWsgiApp(unittest.TestCase):
+class StressTest(FunkLoadTestCase):
 
     def setUp(self):
-        self.app = TestApp(make_app({}))
+        self.app = self
+        self.root = self.conf_get('main', 'url')
+
+    def _random_name(self):
+        return ''.join([random.choice(string.ascii_letters) for i in
+            range(10)])
 
     def test_session(self):
         # we want to send data in a secure channel
-        data = {'username': 'bob',
+        data = {'username': 'sender',
                 'password': 'secret'}
 
         # let's create two end-points
-        bob = Sender('Bob', 'secret', self.app, data)
+        sender = Sender(self._random_name(), 'secret',
+                        self.app, data)
 
-        # bob creates a cid, sarah has to provide
-        sarah = Receiver('Sarah', 'secret', self.app, cid=bob.cid)
+        # sender creates a cid, receiver has to provide
+        receiver = Receiver(self._random_name(), 'secret', self.app,
+                            cid=sender.cid)
 
-        # bob starts
-        bob.start()
+        # sender starts
+        sender.start()
 
         # let's wait a bit
         time.sleep(.5)
 
-        # sarah starts next
-        sarah.start()
+        # receiver starts next
+        receiver.start()
 
         # let's wait for the transaction to end
-        bob.join()
-        sarah.join()
+        sender.join()
+        receiver.join()
 
-        # bob and sarah should have the same key
-        self.assertEqual(bob.key, sarah.key)
+        # sender and receiver should have the same key
+        self.assertEqual(sender.key, receiver.key)
 
-        # sarah should have received the "encrypted" data from bob
-        original_data = bob.data.items()
+        # receiver should have received the "encrypted" data from sender
+        original_data = sender.data.items()
         original_data.sort()
-        received_data = sarah.data.items()
+        received_data = receiver.data.items()
         received_data.sort()
         self.assertEqual(original_data, received_data)
 
-    def test_behavior(self):
-        # make sure we can't play with a channel that does not exist
-        self.app.put('/boo', params='somedata', status=404)
-        self.app.get('/boo', status=404)
-        self.app.delete('/boo', status=404)
-
-        # testing the removal of a channel
-        res = self.app.get('/new_channel')
-        cid = str(json.loads(res.body))
-        curl = '/%s' % cid
-        self.app.delete(curl)
-        self.app.put(curl,  params='somedata', status=404)
-        self.app.get(curl, status=404)
-
-        # let's try a really small ttl to make sure it works
-        if isinstance(self.app.app.cache, dict):
-            # memory fallback, bye-bye
-            return
-
-        self.app.app.ttl = 1.
-        res = self.app.get('/new_channel')
-        cid = str(json.loads(res.body))
-        curl = '/%s' % cid
-        self.app.put(curl,  params='somedata', status=200)
-        time.sleep(1.1)
-
-        # should be dead now
-        self.app.put(curl,  params='somedata', status=404)
+if __name__ == '__main__':
+    unittest.main()
