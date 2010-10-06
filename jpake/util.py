@@ -41,7 +41,7 @@ import random
 
 from webob import Response
 
-CID_CHARS = string.digits + string.ascii_letters
+CID_CHARS = string.digits + string.lowercase
 
 
 def json_response(data, dump=True, **kw):
