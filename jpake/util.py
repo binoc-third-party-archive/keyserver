@@ -65,17 +65,17 @@ class MemoryClient(dict):
     def __init__(self, servers):
         pass
 
-    def set(self, key, value):
+    def set(self, key, value, time=0):
         self[key] = value
         return True
 
-    def add(self, key, value):
+    def add(self, key, value, time=0):
         if key in self:
             return False
         self[key] = value
         return True
 
-    def replace(self, key, value):
+    def replace(self, key, value, time=0):
         if key not in self:
             return False
         self[key] = value
