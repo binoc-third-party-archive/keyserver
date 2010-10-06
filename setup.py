@@ -43,7 +43,7 @@ main = jpake.wsgiapp:make_app
 main = paste.script.appinstall:Installer
 """
 
-requires = ['WebOb', 'Paste', 'PasteScript']
+requires = ['WebOb', 'Paste', 'PasteScript', 'repoze.profile']
 
 setup(name='JPakeServer', version=0.1, packages=find_packages(),
       entry_points=entry_points, install_requires=requires)

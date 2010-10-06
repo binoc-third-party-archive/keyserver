@@ -41,6 +41,7 @@ import re
 from hashlib import md5
 
 from paste.translogger import TransLogger
+from repoze.profile.profiler import AccumulatingProfileMiddleware as Profiler
 
 from webob.dec import wsgify
 from webob.exc import HTTPNotModified, HTTPNotFound, HTTPServiceUnavailable
@@ -164,6 +165,16 @@ def make_app(global_conf, **app_conf):
     cid_len = int(app_conf.get('cid_len', '3'))
     cache = app_conf.get('cache_servers', '127.0.0.1:11211')
     app = JPakeApp(cid_len, cache.split(','))
+
+    # hooking a profiler
+    if global_conf.get('profile', 'false').lower() == 'true':
+        app = Profiler(app, log_filename='profile.log',
+                       cachegrind_filename='cachegrind.out',
+                       discard_first_request=True,
+                       flush_at_shutdown=True,
+                       path='/__profile__')
+
+    # hooking a logger
     if global_conf.get('translogger', 'false').lower() == 'true':
         app = TransLogger(app, logger_name='jpakeapp',
                           setup_console_handler=True)

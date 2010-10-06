@@ -52,16 +52,13 @@ from funkload.utils import Data
 
 class User(threading.Thread):
 
-    def __init__(self, name, passwd, app, data=None, cid=None):
+    def __init__(self, app,  name, passwd, data=None, cid=None, root=''):
         threading.Thread.__init__(self)
-        self.app = app
-        if hasattr(app, 'root'):
-            self.root = app.root
-        else:
-            self.root = ''
         self.name = name
         self.pake = JPAKE(passwd, signerid=name)
         self.data = data
+        self.root = root
+        self.app = app
         if data is not None:
             res = self.app.get(self.root+'/new_channel')
             self.cid = str(json.loads(res.body))
@@ -69,13 +66,16 @@ class User(threading.Thread):
             self.cid = cid
         self.curl = self.root + '/%s' % self.cid
 
+    def runTest(self):
+        pass
+
     def _wait_data(self, etag=''):
+        time.sleep(.2)
         status = 304
         attempts = 0
-        while status == 304 and attempts < 20:
-            self.app.setHeader('If-None-Match', etag)
+        while status == 304 and attempts < 15:
             try:
-                res = self.app.get(self.curl)
+                res = self.app.get(self.curl, headers={'If-None-Match': etag})
             except AssertionError, e:
                 if not '304' in str(e):
                     raise
@@ -85,10 +85,11 @@ class User(threading.Thread):
                 status = res.code
             attempts +=1
             if status == 304:
-                time.sleep(.5)
+                time.sleep(.1)
 
-        if status == 304:
+        if status == 304 and attempts >= 15:
             raise AssertionError('Failed to get next step')
+
         body = json.loads(res.body)
         def _clean(body):
             if isinstance(body, unicode):
@@ -108,16 +109,15 @@ class Sender(User):
     def run(self):
         # step 1
         one = json.dumps(self.pake.one(), ensure_ascii=True)
-        res = self.app.put(self.curl, Data('application/json',one))
+        res = self.app.put(self.curl, Data('application/json', one))
         etag = res.headers['ETag']
 
         other_one = self._wait_data(etag)
 
         # step 2
         two = json.dumps(self.pake.two(other_one))
-        res = self.app.put(self.curl, Data('application/json',two))
+        res = self.app.put(self.curl, Data('application/json', two))
         etag = res.headers['ETag']
-        time.sleep(.2)
 
         # now wait for step 2 from the other iside
         other_two = self._wait_data(etag)
@@ -127,7 +127,7 @@ class Sender(User):
 
         # and we send the data (no crypting in the tests)
         data = json.dumps(self.data)
-        res = self.app.put(self.curl, Data('application/json',data))
+        res = self.app.put(self.curl, Data('application/json', data))
 
 
 class Receiver(User):
@@ -137,7 +137,7 @@ class Receiver(User):
 
         # step 1
         one = json.dumps(self.pake.one(), ensure_ascii=True)
-        res = self.app.put(self.curl, Data('application/json',one))
+        res = self.app.put(self.curl, Data('application/json', one))
         etag = res.headers['ETag']
 
         # waiting for step 2
@@ -145,7 +145,7 @@ class Receiver(User):
 
         # sending step 2
         two = json.dumps(self.pake.two(other_one))
-        res = self.app.put(self.curl, Data('application/json',two))
+        res = self.app.put(self.curl, Data('application/json', two))
         etag = res.headers['ETag']
 
         # then we build the key
@@ -158,12 +158,42 @@ class Receiver(User):
 class StressTest(FunkLoadTestCase):
 
     def setUp(self):
-        self.app = self
         self.root = self.conf_get('main', 'url')
+        self._lock = threading.RLock()
+
+    def acquire(self):
+        self._lock.acquire()
+
+    def release(self):
+        self._lock.release()
+
+    def put(self, *args, **kw):
+        self.acquire()
+        try:
+            return FunkLoadTestCase.put(self, *args, **kw)
+        finally:
+            self.release()
+
+    def get(self, *args, **kw):
+        self.acquire()
+        if 'headers' in kw:
+            headers = kw['headers']
+            for key, value in headers.items():
+                self.setHeader(key, value)
+            del kw['headers']
+        else:
+            headers = []
+        try:
+            return FunkLoadTestCase.get(self, *args, **kw)
+        finally:
+            for key in headers:
+                self.delHeader(key)
+            self.release()
 
     def _random_name(self):
-        return ''.join([random.choice(string.ascii_letters) for i in
-            range(10)])
+        name = ''.join([random.choice(string.ascii_letters)
+                        for i in range(4)])
+        return name + str(round(time.time()))
 
     def test_session(self):
         # we want to send data in a secure channel
@@ -171,18 +201,18 @@ class StressTest(FunkLoadTestCase):
                 'password': 'secret'}
 
         # let's create two end-points
-        sender = Sender(self._random_name(), 'secret',
-                        self.app, data)
+        sender = Sender(self, self._random_name(), 'secret', data,
+                        root=self.root)
 
         # sender creates a cid, receiver has to provide
-        receiver = Receiver(self._random_name(), 'secret', self.app,
-                            cid=sender.cid)
+        receiver = Receiver(self, self._random_name(), 'secret',
+                            cid=sender.cid, root=self.root)
 
         # sender starts
         sender.start()
 
         # let's wait a bit
-        time.sleep(.5)
+        time.sleep(.2)
 
         # receiver starts next
         receiver.start()
