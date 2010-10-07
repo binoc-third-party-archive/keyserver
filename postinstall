@@ -1,0 +1,4 @@
+if [ ! -d /etc/jpake ] then
+    mkdir /etc/jpake
+    cp -r etc/jpake/* /etc/jpake/
+fi
