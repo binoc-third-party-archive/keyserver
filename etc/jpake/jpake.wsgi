@@ -40,6 +40,17 @@ import site
 from logging.config import fileConfig
 from ConfigParser import NoSectionError
 
+# adding a new package location
+save = sys.path[:]
+pkg_dir = '/usr/local/lib/python2.6/dist-packages'
+site.addsitedir(pkg_dir)
+
+for path in sys.path:
+    if path not in saved:
+        saved.insert(0, path)
+sys.path[:] = saved
+
+
 # setting up the egg cache to a place where apache can write
 os.environ['PYTHON_EGG_CACHE'] = '/tmp/python-eggs'
 
