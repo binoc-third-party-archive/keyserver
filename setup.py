@@ -45,5 +45,11 @@ main = paste.script.appinstall:Installer
 
 requires = ['WebOb', 'Paste', 'PasteScript', 'repoze.profile']
 
-setup(name='JPakeServer', version=0.1, packages=find_packages(),
-      entry_points=entry_points, install_requires=requires)
+setup(name='JPakeServer', author='Tarek Ziade',
+      url='https://hg.mozilla.org/services',
+      description='J-Pake server',
+      long_description=open('README.txt').read(),
+      author_email='tarek@mozilla.com',
+      version=0.1, packages=find_packages(),
+      entry_points=entry_points, install_requires=requires,
+      licence='MPL')
