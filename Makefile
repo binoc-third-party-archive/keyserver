@@ -4,7 +4,7 @@ TESTS = jpake/tests
 PYTHON = bin/python
 EZ = bin/easy_install
 
-.PHONY: all build test bench_one bench bend_report
+.PHONY: all build test bench_one bench bend_report build_rpm
 
 all:	build
 
@@ -27,3 +27,5 @@ bench:
 bench_report:
 	bin/fl-build-report --html -o html jpake/tests/stress-bench.xml
 
+build_rpm: build
+	$(PYTHON) setup.py bdist_rpm
