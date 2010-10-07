@@ -27,5 +27,5 @@ bench:
 bench_report:
 	bin/fl-build-report --html -o html jpake/tests/stress-bench.xml
 
-build_rpm: build
+build_rpm:
 	$(PYTHON) setup.py bdist_rpm
