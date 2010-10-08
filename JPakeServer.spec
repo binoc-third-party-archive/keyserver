@@ -32,7 +32,7 @@ See: https://wiki.mozilla.org/Services/Sync/SyncKey/J-PAKE
 %setup -n %{name}-%{unmangled_version} -n %{name}-%{unmangled_version}
 
 %build
-python setup.py build
+python2.6 setup.py build
 
 %install
 mkdir -p %{buildroot}%{_sysconfdir}/jpake
@@ -41,7 +41,7 @@ install -m 0644 etc/jpake/production.ini %{buildroot}%{_sysconfdir}/jpake/produc
 mkdir -p %{buildroot}%{_sysconfdir}/httpd
 mkdir -p %{buildroot}%{_sysconfdir}/httpd/conf.d
 install -m 0644 etc/jpake/jpake.conf %{buildroot}%{_sysconfdir}/httpd/conf.d/jpake.conf
-python setup.py install --single-version-externally-managed --root=$RPM_BUILD_ROOT --record=INSTALLED_FILES
+python2.6 setup.py install --single-version-externally-managed --root=$RPM_BUILD_ROOT --record=INSTALLED_FILES
 
 %clean
 rm -rf $RPM_BUILD_ROOT
