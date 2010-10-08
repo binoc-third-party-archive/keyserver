@@ -129,7 +129,7 @@ class JPakeApp(object):
                                   time=self.ttl):
             # if a replace fails, it means the channel does not exists
             raise HTTPNotFound()
-        return json_response(True, etag=etag)
+        return json_response('', etag=etag)
 
     def get_channel(self, request, channel_id):
         """Grabs data from channel if available."""
@@ -154,9 +154,11 @@ class JPakeApp(object):
             raise HTTPNotFound()
 
         res = self.cache.delete(channel_id)
-        if res:
-            res = self.cache.get(channel_id) is None
-        return json_response(res)
+        if not res:
+            # failed to delete
+            raise HTTPServiceUnavailable()
+
+        return json_response('')
 
 
 def make_app(global_conf, **app_conf):
