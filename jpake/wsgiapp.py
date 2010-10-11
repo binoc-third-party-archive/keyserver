@@ -39,6 +39,7 @@ J-PAKE server - see https://wiki.mozilla.org/Services/Sync/SyncKey/J-PAKE
 import datetime
 import re
 from hashlib import md5
+import json
 
 from paste.translogger import TransLogger
 from repoze.profile.profiler import AccumulatingProfileMiddleware as Profiler
@@ -73,9 +74,10 @@ class JPakeApp(object):
 
     def _get_new_cid(self):
         tries = 0
+        default = json.dumps({})
         while tries < 100:
             new_cid = generate_cid(self.cid_len)
-            success = self.cache.add('jpake:%s' % new_cid, ({}, None),
+            success = self.cache.add('jpake:%s' % new_cid, (default, None),
                                      time=self.ttl)
             if success:
                 break
