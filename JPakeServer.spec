@@ -1,4 +1,5 @@
-%define name JPakeServer
+%define name python-jpake-server
+%define pythonname JPakeServer
 %define version 0.1
 %define unmangled_version 0.1
 %define unmangled_version 0.1
@@ -8,10 +9,10 @@ Summary: J-Pake server
 Name: %{name}
 Version: %{version}
 Release: %{release}
-Source0: %{name}-%{unmangled_version}.tar.gz
+Source0: %{pythonname}-%{unmangled_version}.tar.gz
 License: MPL
 Group: Development/Libraries
-BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
+BuildRoot: %{_tmppath}/%{pythonname}-%{version}-%{release}-buildroot
 Prefix: %{_prefix}
 BuildArch: noarch
 Vendor: Tarek Ziade <tarek@mozilla.com>
@@ -30,7 +31,7 @@ See: https://wiki.mozilla.org/Services/Sync/SyncKey/J-PAKE
 
 
 %prep
-%setup -n %{name}-%{unmangled_version} -n %{name}-%{unmangled_version}
+%setup -n %{pythonname}-%{unmangled_version} -n %{pythonname}-%{unmangled_version}
 
 %build
 python2.6 setup.py build
