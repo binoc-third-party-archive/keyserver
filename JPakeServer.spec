@@ -15,7 +15,8 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
 Prefix: %{_prefix}
 BuildArch: noarch
 Vendor: Tarek Ziade <tarek@mozilla.com>
-Requires: httpd python26 python26-memcached python26-setuptools WebOb meld3 Paste PasteDeploy PasteScript repoze.profile
+Requires: httpd memcached mod_wsgi python26 pylibmc python26-setuptools python-webob python-meld3 python-paste python-pastedeploy python-pastescript python-repoze-profile
+
 Url: https://hg.mozilla.org/services
 
 %description
