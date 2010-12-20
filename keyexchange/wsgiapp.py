@@ -272,7 +272,7 @@ class KeyExchangeApp(object):
         ckey = 'GET:%s' % channel_id
         count = self.cache.get(ckey)
         if count is None:
-            self.cache.set(ckey, '1')
+            self.cache.set(ckey, '1', time=ttl)
         else:
             if int(count) + 1 == self.max_gets:
                 # we reached the last authorized call, the channel is remove
