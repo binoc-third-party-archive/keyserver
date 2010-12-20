@@ -49,13 +49,14 @@ Blacklisted IPs are kept in memory with a TTL.
 """
 import os
 import cgi
+import threading
 
 from mako.template import Template
 
 from keyexchange.filtering.IPy import IP
 from keyexchange.util import get_memcache_class
 from keyexchange.filtering.blacklist import Blacklist
-from keyexchange.filtering.ipqueue import IPQueue
+from keyexchange.filtering.ipcounter import IPCounter
 
 
 class IPFiltering(object):
@@ -102,18 +103,16 @@ class IPFiltering(object):
         self.treshold = treshold
         self.br_treshold = br_treshold
         self.observe = observe
-        self._last_ips = IPQueue(queue_size, ttl=ip_queue_ttl)
-        self._last_br_ips = IPQueue(br_queue_size, ttl=ip_queue_ttl)
+        self._lock = threading.RLock()
         if isinstance(cache_servers, str):
             cache_servers = [cache_servers]
         self._cache_server = get_memcache_class(use_memory)(cache_servers)
-        self.async = async
-        if self.async and update_blfreq is not None:
-            raise ValueError('Cannot use async mode with update_blfreq')
-        self.update_blfreq = update_blfreq
-        self._blcounter = 0
-        self._blacklisted = Blacklist(self._cache_server, refresh_frequency,
-                                      self.async)
+
+        self._last_ips = IPCounter(self._cache_server, ttl=ip_queue_ttl)
+        self._last_br_ips = IPCounter(self._cache_server, ttl=ip_queue_ttl,
+                                      prefix='brcounter')
+        self._blacklisted = Blacklist(self._cache_server)
+
         if admin_page is not None and not admin_page.startswith('/'):
             admin_page = '/' + admin_page
         self.admin_page = admin_page
@@ -138,11 +137,11 @@ class IPFiltering(object):
     def _check_ip(self, ip, environ):
         if self._is_whitelisted(ip):
             return
-        # insert the IP in the queue
-        # if the queue is full, the opposite-end item is discarded
-        self._last_ips.append(ip)
 
-        # counts its ratio in the queue
+        # increment the IP
+        self._last_ips.increment(ip)
+
+        # checks its counts
         if self._last_ips.count(ip) >= self.treshold:
             # blacklisting the IP
             self._blacklisted.add(ip, self.blacklist_ttl)
@@ -154,7 +153,7 @@ class IPFiltering(object):
             return
         # insert the IP in the br queue
         # if the queue is full, the opposite-end item is discarded
-        self._last_br_ips.append(ip)
+        self._last_br_ips.increment(ip)
 
         # counts its occurences in the queue
         if self._last_br_ips.count(ip) >= self.br_treshold:
@@ -176,7 +175,6 @@ class IPFiltering(object):
         for ip in ips:
             try:
                 self._blacklisted.remove(ip)
-                self._blacklisted.save()  # force immediate save
                 if ip in self._last_ips:
                     self._last_ips.remove(ip)
                 if ip in self._last_br_ips:
@@ -187,11 +185,14 @@ class IPFiltering(object):
         headers = [('Content-Type', 'text/html')]
         start_response('200 OK', headers)
         # we want to display the list of blacklisted IPs
-        return [self._admin_tpl.render(ips=self._blacklisted.ips,
+        ips = self._blacklisted.get_ips()
+
+        return [self._admin_tpl.render(ips=ips,
                                        admin_page=self.admin_page,
                                        observe=self.observe)]
 
     def __call__(self, environ, start_response):
+
         # is it an admin call ?
         url = environ.get('PATH_INFO')
         if url is not None and url == self.admin_page:
@@ -217,19 +218,6 @@ class IPFiltering(object):
             start_response('403 Forbidden', headers)
             return ["Forbidden: You don't have permission to access"]
 
-        # updating the blacklist on sync mode
-        if not self.async:
-            self._blcounter += 1
-            if self._blcounter >= self.update_blfreq:
-                self._blcounter = 0
-                try:
-                    if self._blacklisted.outsynced:
-                        self._blacklisted.save()
-                    else:
-                        self._blacklisted.update()
-                except Exception, e:
-                    from keyexchange.filtering import logger
-                    logger.error(str(e))
 
         # checking for the IP in our counter
         self._check_ip(ip, environ)

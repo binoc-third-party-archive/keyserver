@@ -48,6 +48,13 @@ bench3:
 bench_report:
 	bin/fl-build-report --html -o html keyexchange/tests/stress-bench.xml
 
+bench_distributed:
+	cd keyexchange/tests/; ./distributed.sh
+
+bench_distributed_merge:
+	cd keyexchange/tests/; ./distributed-merge.sh
+
+
 hudson:
 	rm -f coverage.xml
 	- $(COVERAGE) run --source=keyexchange $(NOSE) $(TESTS); $(COVERAGE) xml

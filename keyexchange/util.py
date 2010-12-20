@@ -36,6 +36,7 @@
 """ Various helpers.
 """
 import json
+from time import time as ctime
 from webob import Response
 from services.util import randchar
 
@@ -62,21 +63,36 @@ class MemoryClient(dict):
         pass
 
     def set(self, key, value, time=0):
-        self[key] = value
+        self[key] = value, time, ctime()
         return True
 
     cas = set
 
+    def get(self, key):
+        value = dict.get(self, key)
+        if value is None:
+            return None
+        value, max_ttl, age = value
+        if max_ttl == 0:
+            return value
+        ttl = ctime() - age
+        if ttl > max_ttl:
+            self.delete(key)
+            return None
+        return value
+
+    gets = get
+
     def add(self, key, value, time=0):
         if key in self:
             return False
-        self[key] = value
+        self[key] = value, time, ctime()
         return True
 
     def replace(self, key, value, time=0):
         if key not in self:
             return False
-        self[key] = value
+        self[key] = value, time, ctime()
         return True
 
     def delete(self, key):
@@ -86,8 +102,10 @@ class MemoryClient(dict):
         return True
 
     def incr(self, key):
-        val = self[key]
-        self[key] = str(int(val) + 1)
+        val, ttl, age = self[key]
+        val = int(val) + 1
+        self[key] = str(val), ttl, age
+        return (val)
 
 
 class PrefixedCache(object):

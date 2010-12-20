@@ -47,41 +47,11 @@ For the bad request counter, the same technique is used.
 
 Blacklisted IPs are kept in memory with a TTL.
 """
-import time
 import threading
+import time
 
 
-class _Syncer(threading.Thread):
-
-    def __init__(self, blacklist, frequency=5):
-        threading.Thread.__init__(self)
-        self.blacklist = blacklist
-        self.frequency = frequency
-        self.running = False
-
-    def run(self):
-        self.running = True
-        while self.running:
-            # this syncs the blacklist
-            try:
-                if self.blacklist.outsynced:
-                    self.blacklist.save()
-                else:
-                    self.blacklist.update()
-            except Exception, e:
-                # in case something goes wrong
-                # we log it but don't want our thread to die.
-                from keyexchange.filtering import logger
-                logger.error(str(e))
-
-            time.sleep(self.frequency)
-
-    def join(self):
-        if not self.running:
-            return
-        self.running = False
-        threading.Thread.join(self)
-
+# TODO gets/cas
 
 class Blacklist(object):
     """IP Blacklist with TTL and memcache support.
@@ -89,111 +59,68 @@ class Blacklist(object):
     IPs are saved/loaded from Memcached so several apps can share the
     blacklist.
     """
-    def __init__(self, cache_server=None, frequency=5, async=True):
-        self._ttls = {}
-        self._cache_server = cache_server
-        self.ips = set()
-        self._dirty = False
+    def __init__(self, cache_server, key='blacklist'):
         self._lock = threading.RLock()
-        self.async = async
-        if self.async:
-            self._syncer = _Syncer(self, frequency=frequency)
-            # sys.exit() call all threads join() in >= 2.6.5
-            self._syncer.start()
+        self._cache = cache_server
+        self._key = key
 
-    def __getstate__(self):
-        odict = self.__dict__.copy()
-        del odict['_lock']
-        if self.async:
-            del odict['_syncer']
-        return odict
+    def _ip_key(self, ip):
+        return '%s:%s' % (self._key, ip)
 
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        if self.async:
-            self._lock = threading.RLock()
+    def add(self, ip, ttl=360):
+        with self._lock:
+            # keeping a list of blacklisted IPs
+            ips = self._cache.gets(self._key)
+            if ips is None:
+                ips = set(ip)
+            if ip not in ips:
+                ips.add(ip)
 
-    def _get_dirty(self):
-        # hiding it behind a property since
-        # this design could change internally
-        return self._dirty
+            if not self._cache.set(self._key, ips):
+                raise MemcachedFailureError()
 
-    outsynced = property(_get_dirty)
+            # one key per ip as well, for the TTL
+            if not self._cache.set(self._ip_key(ip), 1,
+                                        time=ttl):
+                raise MemcachedFailureError()
 
-    def update(self):
-        """Loads the IP list from memcached."""
-        if self._cache_server is None:
-            return
-        self._lock.acquire()
-        try:
-            self._update()
-        finally:
-            self._lock.release()
+    def __contains__(self, ip):
+        return self._cache.get(self._ip_key(ip)) is not None
 
-    def _update(self):
-        data = self._cache_server.get('keyexchange:blacklist')
-        # merging the memcached values
-        if data is not None:
-            ips, ttls = data
-            # get new blacklisted IP
-            if not self.ips.issuperset(ips):
-                self.ips.union(ips)
-                self._ttls.update(ttls)
+    def get_ips(self):
+        ## XXX only for the admin UI
+        with self._lock:
+            ips = self._cache.get(self._key)
+            if ips is None:
+                return set()
 
-    def save(self):
-        """Save the IP into memcached if needed."""
-        if self._cache_server is None or not self._dirty:
-            return
+            # removing ttl-ed ips
+            # XXX needs something better here
+            res = []
+            for ip in ips:
+                if self._cache.get(self._ip_key(ip)) is None:
+                    continue
+                res.append(ip)
 
-        self._lock.acquire()
-        try:
-            # XXX will use CAS/GETS once pylibmc 1.1.2 is released
-            self._update()
-            data = self.ips, self._ttls
-            if not self._cache_server.set('keyexchange:blacklist', data):
-                from keyexchange.filtering import logger
-                logger.error('Could not update the backlist')
-            self._dirty = False
-        finally:
-            self._lock.release()
+            if res != ips:
+                self._cache.set(self._key, set(res))
 
-    def add(self, elmt, ttl=None):
-        self._lock.acquire()
-        try:
-            self.ips.add(elmt)
-            if ttl is not None:
-                self._ttls[elmt] = time.time() + ttl
-            else:
-                self._ttls[elmt] = None
-            self._dirty = True
-        finally:
-            self._lock.release()
-
-    def remove(self, elmt):
-        self._lock.acquire()
-        try:
-            self.ips.remove(elmt)
-            del self._ttls[elmt]
-            self._dirty = True
-        finally:
-            self._lock.release()
-
-    def __contains__(self, elmt):
-        self._lock.acquire()
-        try:
-            found = elmt in self.ips
-            if found:
-                ttl = self._ttls[elmt]
-                if ttl is None:
-                    return True
-                if self._ttls[elmt] - time.time() <= 0:
-                    # this will not provocate a deadlock
-                    # since we use a Re-entrant lock.
-                    self.remove(elmt)
-                    return False
-            return found
-        finally:
-            self._lock.release()
+            return res
 
     def __len__(self):
-        return len(self.ips)
+        return len(self.get_ips())
+
+    def _remove_from_list(self, ip):
+        ips = self._cache.gets(self._key)
+        if ips is None:
+            return
+        if ip in ips:
+            ips.remove(ip)
+        if not self._cache.set(self._key, ips):
+            raise MemcachedFailureError()
+
+    def remove(self, ip):
+        with self._lock:
+            if not self._cache.delete(self._ip_key(ip)):
+                raise MemcachedFailureError()
+            self._remove_from_list(ip)

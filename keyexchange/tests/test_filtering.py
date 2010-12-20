@@ -148,26 +148,31 @@ class TestIPFiltering(unittest.TestCase):
         app = self.app.app
         app.br_treshold = app.treshold = 100000
 
-        # saturating the queue now to make sure its LRU-ing right
+        # making a few calls with different IPs
         for i in range(15):
-            env = {'REMOTE_ADDR': str(i)}
-            try:
-                self.app.get('/', extra_environ=env)
-            except HTTPForbidden:
-                pass
+            env = {'REMOTE_ADDR': '191.1.1.%d' % i}
+            self.app.get('/', extra_environ=env)
 
-        self.assertEqual(len(app._last_ips), 10)
-        env = {'REMOTE_ADDR': '127.0.0.2'}
-
+        # checking the counters
         for i in range(15):
-            env = {'REMOTE_ADDR': str(i)}
+            ip = '191.1.1.%d' % i
+            self.assertEqual(app._last_ips.count(ip), 1)
+
+        # now trying bad requests
+        for i in range(15):
+            env = {'REMOTE_ADDR': '191.1.1.%d' % i}
             try:
                 self.app.get('/boo', extra_environ=env)
             except (AppError, HTTPForbidden):
                 pass
+            else:
+                raise AssertionError('Should raise')
 
-        # let's see how's the queue is doing
-        self.assertEqual(len(app._last_br_ips), 3)
+        # the bad request counter should have raised
+        for i in range(15):
+            ip = '191.1.1.%d' % i
+            self.assertEqual(app._last_br_ips.count(ip), 1)
+
 
     def test_blacklist_thread_safe(self):
         # testing the thread-safeness of Blacklist
@@ -185,17 +190,12 @@ class TestIPFiltering(unittest.TestCase):
                 #   - add 10 elements
                 #   - remove 1
                 #   - save the list
-                self.blacklist.update()
-
                 for i in range(10):
                     self.blacklist.add(self.name + str(i))
 
                 # remove a random element
-                ips = list(self.blacklist.ips)
+                ips = list(self.blacklist.get_ips())
                 self.blacklist.remove(random.choice(ips))
-
-                # save the list
-                self.blacklist.save()
 
         workers = [Worker(str(i), blacklist) for i in range(10)]
         for worker in workers:
@@ -206,7 +206,6 @@ class TestIPFiltering(unittest.TestCase):
 
         # we should have 90 elements
         self.assertEqual(len(blacklist), 90)
-        self.assertFalse(blacklist._dirty)
 
     def test_admin_page(self):
         # activate the admin page
@@ -265,45 +264,3 @@ class TestIPFiltering(unittest.TestCase):
         blacklist.save = blacklist.update = raiseit
         # make sure the logging happens and the thread does not die
         time.sleep(0.5)
-
-    def test_sync(self):
-        app = IPFiltering(FakeApp(), queue_size=10, blacklist_ttl=.5,
-                          treshold=5, br_queue_size=3,
-                          br_blacklist_ttl=.5, use_memory=True,
-                          ip_whitelist=['192.168/16', '127.0/8', '10/8'],
-                           async=False, update_blfreq=2)
-
-        # make sure the bl is getting updated on synchronous mode
-        counter = [0]
-        def _incr():
-            counter[0] += 1
-
-        old_save = app._blacklisted.save
-        old_update = app._blacklisted.update
-        app._blacklisted.save = app._blacklisted.update = _incr
-        env = {'REMOTE_ADDR': '127.0.0.1'}
-        web_app = TestApp(app)
-
-        try:
-            # doing 10 calls
-            for i in range(5):
-                web_app.get('/', status=200, extra_environ=env)
-        finally:
-            app._blacklisted.save = old_save
-            app._blacklisted.update = old_update
-
-        self.assertEqual(counter[0], 2)
-
-    def test_pickling(self):
-        queue = IPQueue()
-        queue.append('one')
-        pickled = cPickle.dumps(queue)
-        queue2 = cPickle.loads(pickled)
-        self.assertEqual(queue2.count('one'), 1)
-
-        cache = MemoryClient(None)
-        blacklist = Blacklist(cache)
-        blacklist.add('ip')
-        pickled = cPickle.dumps(blacklist)
-        bl2 = cPickle.loads(pickled)
-        self.assertTrue('ip' in bl2)
