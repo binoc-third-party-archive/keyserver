@@ -65,7 +65,7 @@ class IPFiltering(object):
     def __init__(self, app, blacklist_ttl=300, br_blacklist_ttl=86400,
                  treshold=20, br_treshold=5, cache_servers=None,
                  admin_page=None, use_memory=False, observe=False,
-                 callback=None, ip_whitelist=None):
+                 callback=None, ip_whitelist=None, ip_queue_ttl=3600):
 
         """Initializes the middleware.
 
@@ -84,6 +84,7 @@ class IPFiltering(object):
           in the blacklist.
         - ip_whitelist: a list of IP that should never be blacklisted.
           Supports all netmask notations.
+        - ip_queue_ttl: time to live for the ip queue
         """
         self.app = app
         self.blacklist_ttl = blacklist_ttl
