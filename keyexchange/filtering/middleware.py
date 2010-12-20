@@ -63,11 +63,9 @@ class IPFiltering(object):
     """Filtering IPs
     """
     def __init__(self, app, blacklist_ttl=300, br_blacklist_ttl=86400,
-                 queue_size=200, br_queue_size=20, treshold=20,
-                 br_treshold=5, cache_servers=['127.0.0.0.1:11211'],
-                 admin_page=None, use_memory=False, refresh_frequency=1,
-                 observe=False, callback=None, ip_whitelist=None,
-                 async=True, update_blfreq=None, ip_queue_ttl=360):
+                 treshold=20, br_treshold=5, cache_servers=None,
+                 admin_page=None, use_memory=False, observe=False,
+                 callback=None, ip_whitelist=None):
 
         """Initializes the middleware.
 
@@ -75,9 +73,6 @@ class IPFiltering(object):
         - blacklist_ttl: defines how long in seconds an IP is blacklisted
         - br_blacklist_ttl: defines how long in seconds an IP that did too many
           bad requests is blacklisted
-        - queue_size: Size of the queue used to keep track of the last callers
-        - br_queue_size: Size of the queue used to keep track of the last
-          callers that provokated a bad request.
         - treshold: max number of calls per IP before we blacklist it.
         - br_treshold: max number of bad request per IP before we blacklist it.
         - observe: if set to True, IPs are still blacklisted but not rejected.
@@ -89,23 +84,18 @@ class IPFiltering(object):
           in the blacklist.
         - ip_whitelist: a list of IP that should never be blacklisted.
           Supports all netmask notations.
-        - async: if True, uses a thread to sync the blacklist. Otherwise
-          updates it every update_blfreq requests.
-        - update_blfreq: number of requests before the blacklist is updated.
-          async must be False.
-        - ip_queue_ttl: Maximum time to live for an IP in the queues.
         """
         self.app = app
         self.blacklist_ttl = blacklist_ttl
         self.br_blacklist_ttl = br_blacklist_ttl
-        self.queue_size = queue_size
-        self.br_queue_size = br_queue_size
         self.treshold = treshold
         self.br_treshold = br_treshold
         self.observe = observe
         self._lock = threading.RLock()
         if isinstance(cache_servers, str):
             cache_servers = [cache_servers]
+        elif cache_servers is None:
+            cache_servers = ['127.0.0.0.1:11211']
         self._cache_server = get_memcache_class(use_memory)(cache_servers)
 
         self._last_ips = IPCounter(self._cache_server, ttl=ip_queue_ttl)
