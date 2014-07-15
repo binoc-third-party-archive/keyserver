@@ -1,0 +1,7 @@
+html
+lib
+bin
+include
+.*egg-info
+.*egg
+.*pyc
