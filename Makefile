@@ -11,7 +11,7 @@ PKGS = keyexchange
 BUILDAPP = bin/buildapp
 BUILDRPMS = bin/buildrpms
 BUILD_TMP = /tmp/server-key-exhange-build.${USER}
-PYPI = http://pypi.python.org/simple
+PYPI = https://pypi.python.org/simple
 PYPI2RPM = bin/pypi2rpm.py --index=$(PYPI)
 PYPIOPTIONS = -i $(PYPI)
 CHANNEL = dev
@@ -58,12 +58,15 @@ all:	build
 
 build:
 	$(VIRTUALENV) --no-site-packages --distribute .
+	$(INSTALL) pip
 	$(INSTALL) Distribute
 	$(INSTALL) MoPyTools
 	$(INSTALL) nose
 	$(INSTALL) WebTest
 	$(INSTALL) coverage
-	$(BUILDAPP) -c $(CHANNEL) $(PYPIOPTIONS) $(DEPS)
+	# Sometimes this fails on the first run, for reasons that I don't
+	# have the time or inclination to debug...
+	$(BUILDAPP) -c $(CHANNEL) $(PYPIOPTIONS) $(DEPS) || $(BUILDAPP) -c $(CHANNEL) $(PYPIOPTIONS) $(DEPS)
 	# py-scrypt doesn't play nicely with pypi2rpm
 	# so we can't list it in the requirements files.
 	mkdir -p ${BUILD_TMP}
@@ -78,6 +81,9 @@ update:
 	$(BUILDAPP) -c $(CHANNEL) $(PYPIOPTIONS) $(DEPS)
 	# Pre-compile mako templates into the correct directories.
 	for TMPL in `find . -name '*.mako'`; do ./bin/python -c "from mako.template import Template; Template(filename='$$TMPL', module_directory='`dirname $$TMPL`', uri='`basename $$TMPL`')"; done;
+
+clean:
+	rm -rf bin lib man
 
 test:
 	$(NOSE) $(TESTS)

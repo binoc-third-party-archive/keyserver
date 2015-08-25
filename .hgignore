@@ -10,3 +10,6 @@ build
 .*egg
 .*pyc
 .*mako\.py
+.Python
+nosetests.xml
+pip-selfcheck.json
